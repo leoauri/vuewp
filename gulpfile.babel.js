@@ -13,26 +13,13 @@
   */
 
   const gulp = require('gulp');
-  const rename = require('gulp-rename');
-  const plumber = require('gulp-plumber');
-  const util = require('gulp-util');
-  const clean = require('gulp-clean');
 
   // BrowserSync
   const browserSync = require('browser-sync').create();
 
-  // Linters
-  // eslint = require('gulp-eslint');
-  const sassLint = require('gulp-sass-lint');
-
   // JS Related
   // uglify = require('gulp-uglify');
   const webpack = require('webpack-stream');
-
-  // SCSS / CSS Related
-  const sass = require('gulp-sass');
-  const autoprefixer = require('gulp-autoprefixer');
-  const nano = require('gulp-cssnano');
 
   /*
   |-----------------------------------------------------------------------------
@@ -43,7 +30,6 @@
   const themePath = './wp-content/themes/vuewp';
 
   const otherPaths = {
-    staticFiles: [`${themePath}/index.html`],
     distPath: `${themePath}/dist`,
     webpackConfig: './webpack.config.js',
     webpackProdConfig: './webpack.prod.config.js',
@@ -59,7 +45,7 @@
   /* Use this to serve static site i.e. decoupled from WP
    * Entrypoint: dist/index.html
    */
-  gulp.task('browser-sync', () => {
+  gulp.task('browser-sync', ['webpack'], () => {
     browserSync.init({
       server: {
         baseDir: `${themePath}/dist`,
@@ -70,21 +56,6 @@
       notify: false,
     });
   });
-
-  /*
-  |-----------------------------------------------------------------------------
-  | Copy Static
-  |-----------------------------------------------------------------------------
-  */
-
-  /** Cleanup Dist-Directories before Build */
-  gulp.task('clean', () =>
-    gulp
-      .src([`${otherPaths.distPath}/js`], {
-        read: false,
-      })
-      .pipe(clean()),
-  );
 
   /*
   |-----------------------------------------------------------------------------
@@ -103,54 +74,25 @@
     );
   });
 
-  gulp.task('webpack', () => {
+  gulp.task('webpack', (cb) => {
     const config = require(otherPaths.webpackConfig);
     config.watch = true;
 
-    webpack(config).pipe(gulp.dest(`${otherPaths.distPath}/js`));
+    // The callback lets gulp know Webpack is finished building, so task 'browser-sync' can be dependent on it
+    // Webpack calls back each time it rebuilds, but gulp throws an error after the first call
+    // Anyway we only need the first, so test and only call once
+    var hasfired;
+
+    webpack(config, null,
+      (err) => {
+        if (!hasfired) {
+          cb(err);
+          hasfired = true;
+        }
+      })
+    .pipe(gulp.dest(`${otherPaths.distPath}/js`));
+
   });
-
-  gulp.task('scripts', ['webpack']);
-
-  /*
-  |-----------------------------------------------------------------------------
-  | Sass Stylesheets
-  |-----------------------------------------------------------------------------
-  */
-
-  /** Linting Sass Code */
-  gulp.task('lint-sass', () =>
-    gulp
-      .src(`${themePath}/sass/style.scss`)
-      .pipe(sassLint())
-      .pipe(sassLint.format())
-      .pipe(sassLint.failOnError()),
-  );
-
-  /** Compiling and bundeling Sass into single CSS-File */
-  gulp.task('styles', () =>
-    gulp
-      .src(`${themePath}/sass/style.scss`)
-      .pipe(
-        plumber(error => {
-          util.log(util.colors.red(error.message));
-          this.emit('end');
-        }),
-      )
-      // Sass
-      .pipe(sass().on('error', sass.logError))
-      // Prefixer, Compression, etc.
-      .pipe(
-        autoprefixer({
-          browsers: ['last 2 versions', 'ie >= 9', 'and_chr >= 2.3'],
-          cascade: false,
-        }),
-      )
-      .pipe(nano())
-      .pipe(rename({ suffix: '.min' }))
-      .pipe(rename('custom.css'))
-      .pipe(gulp.dest(`${themePath}/css/`)),
-  );
 
   /*
   |-----------------------------------------------------------------------------
@@ -160,21 +102,14 @@
 
   /** Build Task */
 
-  gulp.task('default', ['styles', 'webpack:build', 'webpack:prerender']);
-
-  gulp.task('dev', ['styles', 'webpack']);
+  gulp.task('default', ['webpack:build', 'webpack:prerender']);
 
   /** Server Task */
-  gulp.task('serve', ['dev', 'browser-sync'], () => {
+  gulp.task('serve', ['webpack', 'browser-sync'], () => {
     // Watch HTML
     gulp.watch(`${otherPaths.distPath}/index.html`, browserSync.reload);
 
     // Watch JS Scripts
     gulp.watch(`${otherPaths.distPath}/**/*.js`, browserSync.reload);
-
-    // Watch Styles
-    gulp.watch(`${themePath}/sass/**/*.scss`, ['styles', browserSync.reload]);
-
-    gulp.watch(['./gulpfile.js'], ['scripts', 'styles', browserSync.reload]);
   });
 })();
